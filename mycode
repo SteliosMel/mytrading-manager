@@ -10,6 +10,40 @@
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  /* Dark-mode readability (inputs, badges, result cards) */
+  .dark input,
+  .dark select,
+  .dark textarea {
+    background: #fff !important;
+    color: #111 !important;            /* typed text */
+    border-color: #e5e7eb !important;
+  }
+
+  /* Make placeholder text darker too (default is too light) */
+  .dark input::placeholder,
+  .dark textarea::placeholder {
+    color: #374151 !important;          /* Tailwind gray-700 */
+    opacity: 1 !important;
+  }
+
+  /* Readable text inside white “chips/badges” in dark mode */
+  .dark .bg-white,
+  .dark .bg-gray-50,
+  .dark .bg-gray-100 {
+    color: #111 !important;
+  }
+  .dark .border-gray-200,
+  .dark .border-gray-300 {
+    border-color: #e5e7eb !important;
+  }
+
+  /* Result cards in the Results section */
+  .result-card { background:#fff; }
+  .dark .result-card { color:#111 !important; }
+  .dark .result-card .text-gray-500 { color:#4b5563 !important; } /* darker subtitle */
+</style>
+
 </head>
 <body class="bg-gray-50 text-gray-900">
   <div id="root"></div>
