@@ -10,6 +10,46 @@
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+    /* Dark-mode readability — force dark text on light surfaces */
+    .dark .bg-white,
+    .dark .bg-gray-50,
+    .dark .bg-gray-100 {
+      color: #111 !important;
+    }
+    .dark .bg-white .text-gray-500,
+    .dark .bg-gray-50 .text-gray-500,
+    .dark .bg-gray-100 .text-gray-500,
+    .dark .result-card .text-gray-500 {
+      color: #374151 !important;
+    }
+
+    /* Inputs, selects, and textareas in dark mode */
+    .dark input,
+    .dark select,
+    .dark textarea {
+      background: #fff !important;
+      color: #111 !important;
+      border-color: #e5e7eb !important;
+    }
+    .dark input::placeholder,
+    .dark textarea::placeholder {
+      color: #6b7280 !important;
+      opacity: 1 !important;
+    }
+
+    /* Disabled elements stay readable */
+    .dark :disabled {
+      color: #111 !important;
+      opacity: 1 !important;
+    }
+
+    /* Results cards */
+    .result-card { background: #fff !important; }
+    .dark .result-card { color: #111 !important; }
+    .dark .result-card .text-gray-500 { color: #374151 !important; }
+  </style>
+
 </head>
 <body class="bg-gray-50 text-gray-900">
   <div id="root"></div>
