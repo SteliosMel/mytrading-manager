@@ -3,492 +3,387 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Risk Manager v3</title>
-  <!-- Tailwind for styling -->
+  <title>Risk Manager v3 (2-column)</title>
+  <!-- Tailwind (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body>
-  <div id="root"></div>
-
-  <!-- React + Babel (run JSX in browser) -->
+  <!-- React + ReactDOM + Babel (for JSX in the browser) -->
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <div id="root"></div>
 
   <script type="text/babel">
-    const { useEffect, useMemo, useState } = React;
+    const { useState, useMemo, useEffect } = React;
 
+    // small helper
     const cls = (...s) => s.filter(Boolean).join(" ");
-    const num = (v, d = 2) => (isFinite(v) ? v.toLocaleString(undefined, { maximumFractionDigits: d }) : "–");
-    const fmtMoney = (v) => (isFinite(v) ? v.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 2 }) : "–");
-    const badge = (text) => (<span className="px-2 py-0.5 rounded-full text-xs bg-gray-100 border border-gray-200">{text}</span>);
-    const warn = (cond, msg) => cond ? (<div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">{msg}</div>) : null;
+    const num = (v,d=2) => isFinite(v) ? v.toLocaleString(undefined,{maximumFractionDigits:d}) : "–";
+    const money = v => isFinite(v) ? v.toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:2}) : "–";
 
-    const ResultCard = ({ title, value, subtitle }) => (
-      <div className="result-card rounded-2xl border border-gray-200 p-4 bg-white">
-        <div className="text-sm text-gray-500">{title}</div>
-        <div className="text-2xl font-semibold mt-1">{value}</div>
-        {subtitle ? <div className="text-xs text-gray-500 mt-1">{subtitle}</div> : null}
-      </div>
-    );
+    // Broker presets (VPU, spreads, commissions) – simplified
+    const VPUS = {
+      "PU Prime": { XAUUSD:{vpu:100,dec:2}, US30:{vpu:1,dec:1}, NAS100:{vpu:1,dec:1}, BTCUSD:{vpu:1,dec:1} },
+      "IC Trading":{ XAUUSD:{vpu:100,dec:2}, US30:{vpu:1,dec:1}, NAS100:{vpu:1,dec:1}, BTCUSD:{vpu:1,dec:1} },
+      "Vantage":   { XAUUSD:{vpu:100,dec:2}, US30:{vpu:1,dec:1}, NAS100:{vpu:1,dec:1}, BTCUSD:{vpu:1,dec:1} },
+    };
+    const SPREADS = {
+      "PU Prime": { XAUUSD:0.08, US30:3.6, NAS100:0.7, BTCUSD:0.07 },
+      "IC Trading":{ XAUUSD:0.40, US30:0.7, NAS100:1.0, BTCUSD:1.0 },
+      "Vantage":   { XAUUSD:0.17, US30:2.0, NAS100:0.5, BTCUSD:0.01 },
+    };
+    const COMM = {
+      "PU Prime": { XAUUSD:7, US30:0, NAS100:0, BTCUSD:0 },
+      "IC Trading":{ XAUUSD:7, US30:0, NAS100:0, BTCUSD:0 },
+      "Vantage":   { XAUUSD:6, US30:0, NAS100:0, BTCUSD:0 },
+    };
 
-    function App() {
-      // Account
-      const [balance, setBalance]   = useState(10000);
-      const [equity, setEquity]     = useState(10000);
-      const [riskPct, setRiskPct]   = useState(1.0);
-      const [leverage, setLeverage] = useState(100);
-      const [dark, setDark]         = useState(false);
+    function App(){
+      // theme
+      const [dark,setDark] = useState(false);
 
-      // Broker
-      const [broker, setBroker] = useState("PU Prime");
-
-      // VPU presets (USD P&L per 1.0 price-unit @ 1.0 lot)
-      const brokerVPUs = {
-        "PU Prime": { EURUSD:{vpu:100000,decimals:5}, XAUUSD:{vpu:100,decimals:2}, US30:{vpu:1,decimals:1}, NAS100:{vpu:1,decimals:1}, BTCUSD:{vpu:1,decimals:1}, GER40:{vpu:1,decimals:2}, DE40:{vpu:1,decimals:2}, SPX500:{vpu:1,decimals:2}, US500:{vpu:1,decimals:2}, FTSE100:{vpu:1,decimals:2}, UK100:{vpu:1,decimals:2} },
-        "IC Trading":{ EURUSD:{vpu:100000,decimals:5}, XAUUSD:{vpu:100,decimals:2}, US30:{vpu:1,decimals:1}, NAS100:{vpu:1,decimals:1}, BTCUSD:{vpu:1,decimals:1}, GER40:{vpu:1,decimals:2}, DE40:{vpu:1,decimals:2}, SPX500:{vpu:1,decimals:2}, US500:{vpu:1,decimals:2}, FTSE100:{vpu:1,decimals:2}, UK100:{vpu:1,decimals:2} },
-        "Vantage":   { EURUSD:{vpu:100000,decimals:5}, XAUUSD:{vpu:100,decimals:2}, US30:{vpu:1,decimals:1}, NAS100:{vpu:1,decimals:1}, BTCUSD:{vpu:1,decimals:1}, GER40:{vpu:1,decimals:2}, DE40:{vpu:1,decimals:2}, SPX500:{vpu:1,decimals:2}, US500:{vpu:1,decimals:2}, FTSE100:{vpu:1,decimals:2}, UK100:{vpu:1,decimals:2} },
-        "Custom": {}
-      };
-
-      // Spread presets (price units)
-      const spreads = {
-        "PU Prime":   { BTCUSD: 0.07, US30: 3.60, NAS100: 0.70, XAUUSD: 0.08, GER40: 3.00, DE40: 3.00, SPX500: 0.45, US500: 0.45, FTSE100: 1.80, UK100: 1.80 },
-        "IC Trading": { BTCUSD: 1.00, US30: 0.70, NAS100: 1.00, XAUUSD: 0.40, GER40: 0.80, DE40: 0.80, SPX500: 0.50, US500: 0.50, FTSE100: 1.00, UK100: 1.00 },
-        "Vantage":    { BTCUSD: 0.01, US30: 2.00, NAS100: 0.50, XAUUSD: 0.17 },
-        "Custom": {}
-      };
-
-      // Commission presets (round-trip, $ / lot)
-      const commissionsRT = {
-        "PU Prime":   { BTCUSD: 0, US30: 0, NAS100: 0, XAUUSD: 7, GER40: 0, DE40: 0, SPX500: 0, US500: 0, FTSE100: 0, UK100: 0 },
-        "IC Trading": { BTCUSD: 0, US30: 0, NAS100: 0, XAUUSD: 7, GER40: 0, DE40: 0, SPX500: 0, US500: 0, FTSE100: 0, UK100: 0 },
-        "Vantage":    { BTCUSD: 0, US30: 0, NAS100: 0, XAUUSD: 6, GER40: 0, DE40: 0, SPX500: 0, US500: 0, FTSE100: 0, UK100: 0 },
-        "Custom": {}
-      };
-
-      // Trade inputs
-      const [symbol, setSymbol] = useState("XAUUSD");
-      const [side, setSide]     = useState("BUY");
-      const [entry, setEntry]   = useState(2400.0);
-      const [sl, setSL]         = useState(2365.0);
-
-      // Targets & partials
-      const [tp1, setTP1]       = useState(2440.0);
-      const [tp2, setTP2]       = useState(2520.0);
-      const [runnerTP, setRunnerTP] = useState("");
-      const [pct1, setPct1]     = useState(50);
-      const [pct2, setPct2]     = useState(30);
-      const runnerPct           = Math.max(0, 100 - pct1 - pct2);
-
-      // Costs
-      const [useCostPresets, setUseCostPresets] = useState(true);
-      const [spreadUnits, setSpreadUnits]       = useState(0.2);
-      const [commissionRT, setCommissionRT]     = useState(7.0);
-
-      // ATR (manual)
-      const [useATR, setUseATR]         = useState(false);
-      const [atrValue, setAtrValue]     = useState(10);
-      const [atrPeriod, setAtrPeriod]   = useState(14);
-      const [atrTF, setAtrTF]           = useState("H1");
-      const [atrSLmult, setAtrSLmult]   = useState(1.5);
-      const [atrTP1mult, setAtrTP1mult] = useState(2);
-      const [atrTP2mult, setAtrTP2mult] = useState(3);
-      const [atrTrailMult, setAtrTrailMult] = useState(1);
-
-      // Instrument config
-      const preset     = (brokerVPUs[broker] || {})[symbol] || {};
-      const vpuDefault = preset.vpu ?? 100000;
-      const decimals   = preset.decimals ?? 2;
-      const [useCustomVPU, setUseCustomVPU] = useState(false);
-      const [customVPU, setCustomVPU]       = useState(vpuDefault);
-      const VPU = useMemo(() => (useCustomVPU ? customVPU : vpuDefault), [useCustomVPU, customVPU, vpuDefault]);
-
-      // Risk caps
-      const [dailyCapPct, setDailyCapPct]   = useState(5);
-      const [totalCapPct, setTotalCapPct]   = useState(10);
-      const [cumLossDay, setCumLossDay]     = useState(0);
-      const [cumLossTotal, setCumLossTotal] = useState(0);
-
-      const equityStartOfDay = balance;
-      const dayDDPct   = equityStartOfDay > 0 ? Math.max(0, (-cumLossDay   / equityStartOfDay) * 100) : 0;
-      const totalDDPct = balance          > 0 ? Math.max(0, (-cumLossTotal / balance)          * 100) : 0;
-      const blockedDaily = dayDDPct >= dailyCapPct;
-      const blockedTotal = totalDDPct >= totalCapPct;
-      const canTrade = !(blockedDaily || blockedTotal);
-
-      // Auto-load spreads/commissions
-      useEffect(() => {
-        if (!useCostPresets) return;
-        const sp = (spreads[broker]||{})[symbol];
-        const cm = (commissionsRT[broker]||{})[symbol];
-        if (typeof sp === "number") setSpreadUnits(sp);
-        if (typeof cm === "number") setCommissionRT(cm);
-      }, [broker, symbol, useCostPresets]);
-
+      // account
+      const [balance,setBalance] = useState(10000);
+      const [equity,setEquity] = useState(10000);
+      const [riskPct,setRiskPct] = useState(1);
       const riskAmt = (equity * (riskPct/100)) || 0;
 
-      // Distances
-      const slBaseDist     = Math.abs(entry - sl);
-      const tp1BaseDist    = Math.abs(tp1 - entry);
-      const tp2BaseDist    = Math.abs(tp2 - entry);
-      const runnerBaseDist = runnerTP === "" ? 0 : Math.abs(Number(runnerTP) - entry);
+      // broker / symbol
+      const [broker,setBroker] = useState("PU Prime");
+      const [symbol,setSymbol] = useState("XAUUSD");
 
-      const slDist     = slBaseDist + spreadUnits;
-      const tp1Dist    = Math.max(0, tp1BaseDist - spreadUnits);
-      const tp2Dist    = Math.max(0, tp2BaseDist - spreadUnits);
-      const runnerDist = Math.max(0, runnerBaseDist - spreadUnits);
+      // VPU active
+      const vpuInfo = VPUS[broker]?.[symbol] ?? {vpu:100000,dec:2};
+      const [useCustomVPU,setUseCustomVPU] = useState(false);
+      const [customVPU,setCustomVPU] = useState(vpuInfo.vpu);
+      const VPU = useMemo(()=> useCustomVPU ? customVPU : vpuInfo.vpu, [useCustomVPU,customVPU,vpuInfo.vpu]);
 
-      // ATR suggestions
-      const atrSLdist    = atrValue * atrSLmult;
-      const atrTP1dist   = atrValue * atrTP1mult;
-      const atrTP2dist   = atrValue * atrTP2mult;
-      const atrTrailDist = atrValue * atrTrailMult;
+      // Entry/SL/TPs
+      const [side,setSide] = useState("BUY");
+      const [entry,setEntry] = useState(2400);
+      const [sl,setSL] = useState(2365);
+      const [tp1,setTP1] = useState(2440);
+      const [tp2,setTP2] = useState(2520);
+      const [pct1,setPct1] = useState(50);
+      const [pct2,setPct2] = useState(30);
+      const runnerPct = Math.max(0,100-pct1-pct2);
+      const [runnerTP,setRunnerTP] = useState("");
 
-      const slSuggested  = useATR ? (side==="BUY" ? entry - atrSLdist : entry + atrSLdist) : sl;
-      const tp1Suggested = useATR ? (side==="BUY" ? entry + atrTP1dist : entry - atrTP1dist) : tp1;
-      const tp2Suggested = useATR ? (side==="BUY" ? entry + atrTP2dist : entry - atrTP2dist) : tp2;
+      // Costs
+      const [usePresets,setUsePresets] = useState(true);
+      const [spread,setSpread] = useState(0.08);
+      const [commRT,setCommRT] = useState(7);
+      useEffect(()=>{
+        if(!usePresets) return;
+        const s = SPREADS[broker]?.[symbol];
+        const c = COMM[broker]?.[symbol];
+        if(typeof s==="number") setSpread(s);
+        if(typeof c==="number") setCommRT(c);
+      },[broker,symbol,usePresets]);
+
+      // ATR (manual)
+      const [useATR,setUseATR] = useState(false);
+      const [atrVal,setAtrVal] = useState(10);
+      const [atrSLm,setAtrSLm] = useState(1.5);
+      const [atrTP1m,setAtrTP1m] = useState(2);
+      const [atrTP2m,setAtrTP2m] = useState(3);
+      const [atrTrailm,setAtrTrailm] = useState(1);
+
+      const dec = vpuInfo.dec ?? 2;
+
+      const baseSL = Math.abs(entry - sl);
+      const baseTP1 = Math.abs(tp1 - entry);
+      const baseTP2 = Math.abs(tp2 - entry);
+      const baseRunner = runnerTP==="" ? 0 : Math.abs(Number(runnerTP) - entry);
+
+      // spread-adjusted (conservative)
+      const slDist = baseSL + spread;
+      const tp1Dist = Math.max(0, baseTP1 - spread);
+      const tp2Dist = Math.max(0, baseTP2 - spread);
+      const runnerDist = Math.max(0, baseRunner - spread);
+
+      // per-lot
+      const lossPerLot = slDist * VPU + commRT;
+      const p1PerLot = tp1Dist * VPU - commRT*(pct1/100);
+      const p2PerLot = tp2Dist * VPU - commRT*(pct2/100);
+      const prPerLot = runnerPct>0 ? (runnerDist * VPU - commRT*(runnerPct/100)) : 0;
+
+      const lotSize = lossPerLot>0 ? (riskAmt / lossPerLot) : 0;
+      const estProfit = lotSize * (p1PerLot*(pct1/100) + p2PerLot*(pct2/100) + prPerLot*(runnerPct/100));
+
+      // risk caps & manual P/L
+      const [dayCap,setDayCap] = useState(5);
+      const [totCap,setTotCap] = useState(10);
+      const [cumDay,setCumDay] = useState(0);
+      const [cumTot,setCumTot] = useState(0);
+      const dayDD = balance>0 ? Math.max(0, (-cumDay / balance)*100) : 0;
+      const totDD = balance>0 ? Math.max(0, (-cumTot / balance)*100) : 0;
+      const canTrade = !(dayDD>=dayCap || totDD>=totCap);
+
+      const [manualPL,setManualPL] = useState("");
+      const addPL = where => {
+        const v = parseFloat((manualPL||"").replace(',','.'));
+        if(!isFinite(v) || v===0) return;
+        if(where==="day"||where==="both") setCumDay(prev=>prev+v);
+        if(where==="tot"||where==="both") setCumTot(prev=>prev+v);
+        setManualPL("");
+      };
 
       const applyATR = () => {
-        if (!useATR) return;
-        setSL(Number(slSuggested.toFixed(decimals)));
-        setTP1(Number(tp1Suggested.toFixed(decimals)));
-        setTP2(Number(tp2Suggested.toFixed(decimals)));
-        setTrailUnits(Number(atrTrailDist.toFixed(decimals)));
-      };
-
-      // P&L per lot
-      const lossPerLot = slDist * VPU + commissionRT;
-      const p1PerLot   = tp1Dist * VPU - commissionRT * (pct1/100);
-      const p2PerLot   = tp2Dist * VPU - commissionRT * (pct2/100);
-      const prPerLot   = runnerPct>0 ? (runnerDist * VPU - commissionRT * (runnerPct/100)) : 0;
-
-      const lotSize = lossPerLot > 0 ? (riskAmt / lossPerLot) : 0;
-      const expectedPerLotIfAllTPs = p1PerLot*(pct1/100) + p2PerLot*(pct2/100) + prPerLot*(runnerPct/100);
-      const estProfitIfAllTPs = expectedPerLotIfAllTPs * lotSize;
-
-      const exposure  = Math.abs(entry) * VPU * lotSize;
-      const estMargin = leverage > 0 ? (exposure / leverage) : 0;
-
-      // Validations
-      const slInvalid   = side==="BUY" ? sl >= entry : sl <= entry;
-      const tp1Invalid  = side==="BUY" ? tp1 <= entry : tp1 >= entry;
-      const tp2Invalid  = side==="BUY" ? tp2 <= entry : tp2 >= entry;
-      const tpOrderInvalid = (side==="BUY" && tp2 <= tp1) || (side==="SELL" && tp2 >= tp1);
-      const runnerMissing = runnerPct>0 && runnerTP === "";
-
-      // Auto BE & Trailing
-      const [autoBE, setAutoBE]       = useState(true);
-      const [beTrigger, setBeTrigger] = useState("TP1");
-      const [beUnits, setBeUnits]     = useState(0);
-      const [beOffset, setBeOffset]   = useState(0);
-      const [useTrail, setUseTrail]   = useState(true);
-      const [trailStart, setTrailStart] = useState("TP1");
-      const [trailUnits, setTrailUnits] = useState(1);
-
-      const tp1Price = side==="BUY" ? entry + tp1BaseDist : entry - tp1BaseDist;
-      const tp2Price = side==="BUY" ? entry + tp2BaseDist : entry - tp2BaseDist;
-      const beTriggerDist = beTrigger==="TP1" ? tp1BaseDist : beTrigger==="TP2" ? tp2BaseDist : beUnits;
-      const beSL = autoBE ? (side==="BUY" ? entry + Math.max(0, beOffset) : entry - Math.max(0, beOffset)) : null;
-      const trailAtTP2 = useTrail ? (side==="BUY" ? Math.max(entry, tp2Price - trailUnits) : Math.min(entry, tp2Price + trailUnits)) : null;
-
-      // Loss adjust by R
-      const adjLoss = (mult, scope='both') => {
-        const delta = -riskAmt * mult;
-        if (scope==='both' || scope==='day')   setCumLossDay(v => v + delta);
-        if (scope==='both' || scope==='total') setCumLossTotal(v => v + delta);
-      };
-
-      // Manual P/L
-      const [manualPLStr, setManualPLStr] = useState("");
-      const applyManualPL = (scope='both') => {
-        const parsed = parseFloat((manualPLStr || "").replace(',', '.'));
-        if (!isFinite(parsed) || parsed === 0) return;
-        if (scope==='both' || scope==='day')   setCumLossDay(v => v + parsed);
-        if (scope==='both' || scope==='total') setCumLossTotal(v => v + parsed);
-        setManualPLStr("");
+        if(!useATR) return;
+        const sld = atrVal*atrSLm, t1d = atrVal*atrTP1m, t2d = atrVal*atrTP2m;
+        const ns = side==="BUY" ? entry - sld : entry + sld;
+        const nt1 = side==="BUY" ? entry + t1d : entry - t1d;
+        const nt2 = side==="BUY" ? entry + t2d : entry - t2d;
+        setSL(Number(ns.toFixed(dec)));
+        setTP1(Number(nt1.toFixed(dec)));
+        setTP2(Number(nt2.toFixed(dec)));
       };
 
       return (
-        <div className={cls("min-h-screen", dark ? "dark bg-neutral-900 text-neutral-100" : "bg-gray-50 text-gray-900")}>
-          <div className="max-w-7xl mx-auto p-6">
-            {/* Dark-mode input readability */}
-            <style>{`
-              .dark input, .dark select, .dark textarea { color:#111 !important; background:#fff !important; }
-              .dark .bg-white { color:#111 !important; }
-              .dark .bg-white .text-gray-500 { color:#4b5563 !important; }
-              .dark .border-gray-300 { border-color:#e5e7eb !important; }
-              .dark .result-card { color:#111 !important; }
-              .dark .result-card .text-gray-500 { color:#4b5563 !important; }
-              .dark .bg-gray-100, .dark .bg-gray-50 { color:#111 !important; }
-              .dark .border-gray-200 { border-color:#e5e7eb !important; }
-            `}</style>
-
-            <header className="mb-6 flex items-center justify-between">
-              <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">Risk Manager v3</h1>
-              <div className="flex items-center gap-3">
-                <button onClick={()=>setDark(d=>!d)} className="px-3 py-1.5 rounded-xl border border-gray-300 hover:bg-gray-100 text-sm">
-                  {dark ? "Dark mode" : "Dark mode"}
-                </button>
-                <div className="text-sm text-gray-500">Account currency: USD</div>
-              </div>
+        <div className={cls(dark?"bg-neutral-900 text-neutral-100":"bg-gray-50 text-gray-900","min-h-screen")}>
+          <div className="max-w-6xl mx-auto p-4 sm:p-6">
+            <header className="flex items-center justify-between mb-4">
+              <h1 className="text-2xl font-semibold">Risk Manager v3</h1>
+              <button onClick={()=>setDark(d=>!d)} className="px-3 py-1.5 rounded-xl border border-gray-300 bg-white text-gray-700 hover:bg-gray-100">
+                {dark?"Light mode":"Dark mode"}
+              </button>
             </header>
 
-            <!-- MAIN PANELS: **2 columns on desktop**, 1 on mobile -->
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <!-- Account -->
-              <section className={cls(dark?"bg-neutral-800 border-neutral-700":"bg-white border-gray-200","rounded-2xl shadow-sm border p-4")}>
-                <h2 className="font-medium mb-3">Account</h2>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="text-sm">Balance
-                    <input type="number" value={balance} onChange={e=>setBalance(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                  <label className="text-sm">Equity
-                    <input type="number" value={equity} onChange={e=>setEquity(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                  <label className="text-sm">Risk %
-                    <input type="number" step="0.1" value={riskPct} onChange={e=>setRiskPct(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                  <label className="text-sm">Leverage (estimate)
-                    <input type="number" value={leverage} onChange={e=>setLeverage(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                </div>
-                <div className="mt-3 text-sm flex items-center gap-2 flex-wrap">
-                  {badge(`Risk $ ${num(riskAmt,2)}`)}
-                  {badge(`Day DD ${num(dayDDPct,1)}% / Cap ${num(dailyCapPct,1)}%`)}
-                  {badge(`Total DD ${num(totalDDPct,1)}% / Cap ${num(totalCapPct,1)}%`)}
-                  {badge(canTrade ? "Can trade" : "BLOCKED")}
-                </div>
-
-                <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                  <label>Day Cap %
-                    <input type="number" step="0.1" value={dailyCapPct} onChange={e=>setDailyCapPct(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2" />
-                  </label>
-                  <label>Total Cap %
-                    <input type="number" step="0.1" value={totalCapPct} onChange={e=>setTotalCapPct(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2" />
-                  </label>
-                  <div className="flex items-end gap-2">
-                    <button onClick={()=>adjLoss(0.25)} className="px-2 py-1 rounded-xl border border-gray-300 hover:bg-gray-100">−0.25R</button>
-                    <button onClick={()=>adjLoss(0.5)} className="px-2 py-1 rounded-xl border border-gray-300 hover:bg-gray-100">−0.5R</button>
-                    <button onClick={()=>adjLoss(1)} className="px-2 py-1 rounded-xl border border-gray-300 hover:bg-gray-100">−1R</button>
-                  </div>
-                  <div className="flex items-end gap-2">
-                    <button onClick={()=>setCumLossDay(0)} className="px-2 py-1 rounded-xl border border-gray-300 hover:bg-gray-100">Reset Day</button>
-                    <button onClick={()=>setCumLossTotal(0)} className="px-2 py-1 rounded-xl border border-gray-300 hover:bg-gray-100">Reset Total</button>
-                  </div>
-                  <label className="col-span-2">Manual P/L ($) — positive for profit, negative for loss
-                    <input type="text" inputMode="decimal" placeholder="e.g. -100 or 120.5" value={manualPLStr} onChange={e=> setManualPLStr(e.target.value)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                  <div className="flex items-end gap-2">
-                    <button onClick={()=>applyManualPL('day')} className="px-2 py-1 rounded-xl border border-gray-300 hover:bg-gray-100">Add to Day</button>
-                    <button onClick={()=>applyManualPL('total')} className="px-2 py-1 rounded-xl border border-gray-300 hover:bg-gray-100">Add to Total</button>
-                    <button onClick={()=>applyManualPL('both')} className="px-2 py-1 rounded-xl border border-gray-300 hover:bg-gray-100">Add to Both</button>
-                  </div>
-                </div>
-                <div className="mt-2 text-xs text-gray-500">Cum losses — Day: {fmtMoney(cumLossDay)} | Total: {fmtMoney(cumLossTotal)}</div>
-              </section>
-
-              <!-- Broker & Symbol -->
-              <section className={cls(dark?"bg-neutral-800 border-neutral-700":"bg-white border-gray-200","rounded-2xl shadow-sm border p-4")}>
-                <h2 className="font-medium mb-3">Broker & Symbol</h2>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="text-sm">Broker
-                    <select value={broker} onChange={e=>setBroker(e.target.value)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 bg-white">
-                      <option>PU Prime</option>
-                      <option>IC Trading</option>
-                      <option>Vantage</option>
-                      <option>Custom</option>
-                    </select>
-                  </label>
-                  <label className="text-sm">Symbol
-                    <select value={symbol} onChange={e=>setSymbol(e.target.value)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 bg-white">
-                      <option>EURUSD</option><option>XAUUSD</option><option>US30</option><option>NAS100</option><option>BTCUSD</option><option>GER40</option><option>SPX500</option><option>FTSE100</option><option>UK100</option>
-                    </select>
-                  </label>
-                  <div className="col-span-2 flex items-center gap-2 text-sm">
-                    <input id="ucv" type="checkbox" checked={useCustomVPU} onChange={e=>setUseCustomVPU(e.target.checked)} />
-                    <label htmlFor="ucv">Custom VPU (USD per 1.0 price move @ 1.0 lot)</label>
-                  </div>
-                  <label className="text-sm col-span-2">VPU
-                    <input type="number" value={useCustomVPU?customVPU:VPU} onChange={e=>setCustomVPU(parseFloat(e.target.value)||0)} disabled={!useCustomVPU}
-                      className={`mt-1 w-full rounded-xl border px-3 py-2 ${useCustomVPU?"border-gray-300":"border-dashed border-gray-300 bg-gray-50 text-gray-400"}`}/>
-                  </label>
-                  <div className="text-xs text-gray-500 col-span-2">Preset VPU: {symbol} ⇒ {VPU} USD/unit/lot</div>
-                </div>
-              </section>
-
-              <!-- Trade & Costs -->
-              <section className={cls(dark?"bg-neutral-800 border-neutral-700":"bg-white border-gray-200","rounded-2xl shadow-sm border p-4")}>
-                <h2 className="font-medium mb-3">Trade & Costs</h2>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="text-sm">Side
-                    <select value={side} onChange={e=>setSide(e.target.value)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 bg-white"><option>BUY</option><option>SELL</option></select>
-                  </label>
-                  <label className="text-sm">Entry
-                    <input type="number" value={entry} onChange={e=>setEntry(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                  <label className="text-sm">Stop Loss
-                    <input type="number" value={sl} onChange={e=>setSL(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                  <label className="text-sm col-span-2 flex items-center gap-2">
-                    <input type="checkbox" checked={useCostPresets} onChange={e=>setUseCostPresets(e.target.checked)} />
-                    <span>Use preset Spread & Commission for this Broker/Symbol</span>
-                  </label>
-                  <label className="text-sm">Spread (price units)
-                    <input type="number" step="0.01" value={spreadUnits} onChange={e=>setSpreadUnits(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                  <label className="text-sm">Commission (round-trip, $ / 1 lot)
-                    <input type="number" step="0.01" value={commissionRT} onChange={e=>setCommissionRT(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                </div>
-                {warn(slInvalid, side==="BUY" ? "Για BUY, το SL πρέπει να είναι κάτω από την τιμή εισόδου." : "Για SELL, το SL πρέπει να είναι πάνω από την τιμή εισόδου.")}
-                <div className="mt-3 text-xs text-gray-500">SL base: {num(slBaseDist, decimals)} | SL adj: {num(slDist, decimals)} | Spread: {num(spreadUnits, decimals)} | Commission RT: {fmtMoney(commissionRT)}</div>
-              </section>
-
-              <!-- ATR -->
-              <section className={cls(dark?"bg-neutral-800 border-neutral-700":"bg-white border-gray-200","rounded-2xl shadow-sm border p-4")}>
-                <h2 className="font-medium mb-3">ATR Engine (manual)</h2>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <label>Use ATR
-                    <div className="mt-1 flex items-center gap-2">
-                      <input type="checkbox" checked={useATR} onChange={e=>setUseATR(e.target.checked)} />
-                      <span>Enable ATR-based TP/SL & TSL</span>
+            {/* TWO COLUMNS on desktop, ONE on mobile */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Left column */}
+              <div className="space-y-6">
+                {/* Account */}
+                <section className={cls(dark?"bg-neutral-800 border-neutral-700":"bg-white border-gray-200","rounded-2xl border p-4")}>
+                  <h2 className="font-medium mb-3">Account</h2>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <label>Balance
+                      <input type="number" value={balance} onChange={e=>setBalance(parseFloat(e.target.value)||0)}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+                    <label>Equity
+                      <input type="number" value={equity} onChange={e=>setEquity(parseFloat(e.target.value)||0)}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+                    <label>Risk %
+                      <input type="number" step="0.1" value={riskPct} onChange={e=>setRiskPct(parseFloat(e.target.value)||0)}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+                    <div className="flex items-end">
+                      <span className="px-2 py-1 rounded-full text-xs bg-gray-100 border border-gray-200">
+                        Risk ${num(riskAmt,2)}
+                      </span>
                     </div>
-                  </label>
-                  <label>Timeframe
-                    <select value={atrTF} onChange={e=>setAtrTF(e.target.value)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 bg-white">
-                      <option>M5</option><option>M15</option><option>M30</option><option>H1</option><option>H4</option><option>D1</option>
-                    </select>
-                  </label>
-                  <label>ATR period
-                    <input type="number" value={atrPeriod} onChange={e=>setAtrPeriod(parseInt(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                  <label>ATR value (price units)
-                    <input type="number" step="0.01" value={atrValue} onChange={e=>setAtrValue(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                  <label>SL × ATR
-                    <input type="number" step="0.1" value={atrSLmult} onChange={e=>setAtrSLmult(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                  <label>TP1 × ATR
-                    <input type="number" step="0.1" value={atrTP1mult} onChange={e=>setAtrTP1mult(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                  <label>TP2 × ATR
-                    <input type="number" step="0.1" value={atrTP2mult} onChange={e=>setAtrTP2mult(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                  <label>Trail × ATR
-                    <input type="number" step="0.1" value={atrTrailMult} onChange={e=>setAtrTrailMult(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                  <span className="px-2 py-1 rounded bg-gray-100 border border-gray-200">SL → {num(slSuggested, decimals)}</span>
-                  <span className="px-2 py-1 rounded bg-gray-100 border border-gray-200">TP1 → {num(tp1Suggested, decimals)}</span>
-                  <span className="px-2 py-1 rounded bg-gray-100 border border-gray-200">TP2 → {num(tp2Suggested, decimals)}</span>
-                  <span className="px-2 py-1 rounded bg-gray-100 border border-gray-200">TSL dist → {num(atrTrailDist, decimals)} units</span>
-                </div>
-                <div className="mt-3">
-                  <button onClick={applyATR} className="px-3 py-2 rounded-xl border border-gray-300 hover:bg-gray-100 text-sm">Apply ATR to SL/TP/TSL</button>
-                </div>
-              </section>
-
-              <!-- Targets -->
-              <section className={cls(dark?"bg-neutral-800 border-neutral-700":"bg-white border-gray-200","rounded-2xl shadow-sm border p-4")}>
-                <h2 className="font-medium mb-3">Targets, Partials & Automation</h2>
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="text-sm">TP1 price
-                    <input type="number" value={tp1} onChange={e=>setTP1(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                  <label className="text-sm">Close % at TP1
-                    <input type="number" value={pct1} onChange={e=>setPct1(Math.min(100, Math.max(0, parseFloat(e.target.value)||0)))} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                  <label className="text-sm">TP2 price
-                    <input type="number" value={tp2} onChange={e=>setTP2(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                  <label className="text-sm">Close % at TP2
-                    <input type="number" value={pct2} onChange={e=>setPct2(Math.min(100, Math.max(0, parseFloat(e.target.value)||0)))} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-                  <label className="text-sm col-span-2">Runner TP (optional)
-                    <input type="number" value={runnerTP} onChange={e=>setRunnerTP(e.target.value === '' ? '' : (parseFloat(e.target.value)||0))} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                  </label>
-
-                  <div className="col-span-2 border-t pt-3 grid grid-cols-2 gap-3">
-                    <div className="text-sm font-medium">Auto Breakeven</div>
-                    <label className="text-sm flex items-center gap-2 justify-end">
-                      <input type="checkbox" checked={autoBE} onChange={e=>setAutoBE(e.target.checked)} /> Enable
-                    </label>
-                    <label className="text-sm">Trigger
-                      <select value={beTrigger} onChange={e=>setBeTrigger(e.target.value)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2">
-                        <option value="TP1">At TP1</option>
-                        <option value="TP2">At TP2</option>
-                        <option value="Units">Move ≥ Units</option>
-                      </select>
-                    </label>
-                    <label className="text-sm">Units (if selected)
-                      <input type="number" value={beUnits} onChange={e=>setBeUnits(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                    </label>
-                    <label className="text-sm">Offset (units)
-                      <input type="number" value={beOffset} onChange={e=>setBeOffset(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                    </label>
                   </div>
 
-                  <div className="col-span-2 border-t pt-3 grid grid-cols-2 gap-3">
-                    <div className="text-sm font-medium">Trailing Stop</div>
-                    <label className="text-sm flex items-center gap-2 justify-end">
-                      <input type="checkbox" checked={useTrail} onChange={e=>setUseTrail(e.target.checked)} /> Enable
+                  <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                    <label>Day Cap %
+                      <input type="number" step="0.1" value={dayCap} onChange={e=>setDayCap(parseFloat(e.target.value)||0)}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
                     </label>
-                    <label className="text-sm">Start when
-                      <select value={trailStart} onChange={e=>setTrailStart(e.target.value)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2">
-                        <option value="TP1">Reach TP1</option>
-                        <option value="TP2">Reach TP2</option>
-                        <option value="Units">Move ≥ Units</option>
+                    <label>Total Cap %
+                      <input type="number" step="0.1" value={totCap} onChange={e=>setTotCap(parseFloat(e.target.value)||0)}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+
+                    <div className="col-span-2 flex items-center gap-2 flex-wrap">
+                      <span className="px-2 py-1 rounded-full text-xs bg-gray-100 border border-gray-200">
+                        Day DD {num(dayDD,1)}% / Cap {num(dayCap,1)}%
+                      </span>
+                      <span className="px-2 py-1 rounded-full text-xs bg-gray-100 border border-gray-200">
+                        Total DD {num(totDD,1)}% / Cap {num(totCap,1)}%
+                      </span>
+                      <span className={cls("px-2 py-1 rounded-full text-xs border",
+                        canTrade?"bg-green-100 border-green-200":"bg-red-100 border-red-200")}>
+                        {canTrade?"Can trade":"BLOCKED"}
+                      </span>
+                    </div>
+
+                    <label className="col-span-2">Manual P/L ($) — positive profit, negative loss
+                      <input type="text" value={manualPL} onChange={e=>setManualPL(e.target.value)}
+                             placeholder="e.g. -100 or 120.5"
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <button onClick={()=>addPL("day")} className="px-2 py-1 rounded-xl border border-gray-300 bg-white hover:bg-gray-100">Add to Day</button>
+                      <button onClick={()=>addPL("tot")} className="px-2 py-1 rounded-xl border border-gray-300 bg-white hover:bg-gray-100">Add to Total</button>
+                      <button onClick={()=>addPL("both")} className="px-2 py-1 rounded-xl border border-gray-300 bg-white hover:bg-gray-100">Add to Both</button>
+                    </div>
+                    <div className="text-xs text-gray-500 col-span-2">
+                      Cum — Day: {money(cumDay)} | Total: {money(cumTot)}
+                    </div>
+                  </div>
+                </section>
+
+                {/* Targets / partials */}
+                <section className={cls(dark?"bg-neutral-800 border-neutral-700":"bg-white border-gray-200","rounded-2xl border p-4")}>
+                  <h2 className="font-medium mb-3">Targets & Partials</h2>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <label>TP1 price
+                      <input type="number" value={tp1} onChange={e=>setTP1(parseFloat(e.target.value)||0)}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+                    <label>Close % @ TP1
+                      <input type="number" value={pct1} onChange={e=>setPct1(Math.min(100,Math.max(0,parseFloat(e.target.value)||0)))}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+                    <label>TP2 price
+                      <input type="number" value={tp2} onChange={e=>setTP2(parseFloat(e.target.value)||0)}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+                    <label>Close % @ TP2
+                      <input type="number" value={pct2} onChange={e=>setPct2(Math.min(100,Math.max(0,parseFloat(e.target.value)||0)))}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+                    <label className="col-span-2">Runner TP (optional)
+                      <input type="number" value={runnerTP} onChange={e=>setRunnerTP(e.target.value)}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+                    <div className="text-sm">Runner %: <b>{runnerPct}%</b></div>
+                  </div>
+                </section>
+              </div>
+
+              {/* Right column */}
+              <div className="space-y-6">
+                {/* Broker & Trade */}
+                <section className={cls(dark?"bg-neutral-800 border-neutral-700":"bg-white border-gray-200","rounded-2xl border p-4")}>
+                  <h2 className="font-medium mb-3">Broker & Trade</h2>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <label>Broker
+                      <select value={broker} onChange={e=>setBroker(e.target.value)}
+                              className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 bg-white">
+                        <option>PU Prime</option>
+                        <option>IC Trading</option>
+                        <option>Vantage</option>
                       </select>
                     </label>
-                    <label className="text-sm">Trail distance (units)
-                      <input type="number" value={trailUnits} onChange={e=>setTrailUnits(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    <label>Symbol
+                      <select value={symbol} onChange={e=>setSymbol(e.target.value)}
+                              className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 bg-white">
+                        <option>XAUUSD</option>
+                        <option>US30</option>
+                        <option>NAS100</option>
+                        <option>BTCUSD</option>
+                      </select>
                     </label>
+
+                    <div className="col-span-2 flex items-center gap-2">
+                      <input id="cv" type="checkbox" checked={useCustomVPU} onChange={e=>setUseCustomVPU(e.target.checked)}/>
+                      <label htmlFor="cv">Custom VPU (USD per 1.0 price move @ 1.0 lot)</label>
+                    </div>
+                    <label className="col-span-2">VPU
+                      <input type="number" value={useCustomVPU?customVPU:VPU}
+                             onChange={e=>setCustomVPU(parseFloat(e.target.value)||0)}
+                             disabled={!useCustomVPU}
+                             className={cls("mt-1 w-full rounded-xl border px-3 py-2",
+                                useCustomVPU?"border-gray-300":"border-dashed border-gray-300 bg-gray-50 text-gray-400")}/>
+                    </label>
+
+                    <label>Side
+                      <select value={side} onChange={e=>setSide(e.target.value)}
+                              className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 bg-white">
+                        <option>BUY</option><option>SELL</option>
+                      </select>
+                    </label>
+                    <label>Entry
+                      <input type="number" value={entry} onChange={e=>setEntry(parseFloat(e.target.value)||0)}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+                    <label>Stop Loss
+                      <input type="number" value={sl} onChange={e=>setSL(parseFloat(e.target.value)||0)}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+
+                    <div className="col-span-2 flex items-center gap-2">
+                      <input id="up" type="checkbox" checked={usePresets} onChange={e=>setUsePresets(e.target.checked)}/>
+                      <label htmlFor="up">Use preset Spread & Commission for this Broker/Symbol</label>
+                    </div>
+                    <label>Spread (price units)
+                      <input type="number" step="0.01" value={spread} onChange={e=>setSpread(parseFloat(e.target.value)||0)}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+                    <label>Commission (round-trip, $ / lot)
+                      <input type="number" step="0.01" value={commRT} onChange={e=>setCommRT(parseFloat(e.target.value)||0)}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+                    <div className="col-span-2 text-xs text-gray-500">
+                      SL base: {num(baseSL,dec)} | SL adj: {num(slDist,dec)} | Spread: {num(spread,dec)} | Commission RT: {money(commRT)}
+                    </div>
                   </div>
-                </div>
-                <div className="mt-2 text-sm">Runner %: <b>{runnerPct}%</b></div>
-                {warn(tp1Invalid, side==="BUY" ? "Για BUY, το TP1 πρέπει να είναι πάνω από την είσοδο." : "Για SELL, το TP1 πρέπει να είναι κάτω από την είσοδο.")}
-                {warn(tp2Invalid, side==="BUY" ? "Για BUY, το TP2 πρέπει να είναι πάνω από την είσοδο." : "Για SELL, το TP2 πρέπει να είναι κάτω από την είσοδο.")}
-                {warn(tpOrderInvalid, "Η σειρά TP1/TP2 δεν είναι ορθή για την κατεύθυνση.")}
-                {warn(runnerMissing, "Έχεις ποσοστό Runner αλλά δεν όρισες Runner TP – το κέρδος του Runner δεν υπολογίζεται.")}
-                <div className="mt-3 text-xs text-gray-500">TP1 adj dist: {num(tp1Dist, decimals)} | TP2 adj dist: {num(tp2Dist, decimals)} | Runner adj dist: {num(runnerDist, decimals)}</div>
-              </section>
+                </section>
+
+                {/* ATR */}
+                <section className={cls(dark?"bg-neutral-800 border-neutral-700":"bg-white border-gray-200","rounded-2xl border p-4")}>
+                  <h2 className="font-medium mb-3">ATR Engine (manual)</h2>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="col-span-2 flex items-center gap-2">
+                      <input id="atr" type="checkbox" checked={useATR} onChange={e=>setUseATR(e.target.checked)}/>
+                      <label htmlFor="atr">Enable ATR-based TP/SL & TSL</label>
+                    </div>
+                    <label>ATR value (units)
+                      <input type="number" step="0.01" value={atrVal} onChange={e=>setAtrVal(parseFloat(e.target.value)||0)}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+                    <label>SL × ATR
+                      <input type="number" step="0.1" value={atrSLm} onChange={e=>setAtrSLm(parseFloat(e.target.value)||0)}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+                    <label>TP1 × ATR
+                      <input type="number" step="0.1" value={atrTP1m} onChange={e=>setAtrTP1m(parseFloat(e.target.value)||0)}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+                    <label>TP2 × ATR
+                      <input type="number" step="0.1" value={atrTP2m} onChange={e=>setAtrTP2m(parseFloat(e.target.value)||0)}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+                    <label>Trail × ATR
+                      <input type="number" step="0.1" value={atrTrailm} onChange={e=>setAtrTrailm(parseFloat(e.target.value)||0)}
+                             className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+                    </label>
+                    <div className="col-span-2">
+                      <button onClick={applyATR} className="px-3 py-2 rounded-xl border border-gray-300 bg-white hover:bg-gray-100">
+                        Apply ATR to SL/TP
+                      </button>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Results */}
+                <section className={cls(dark?"bg-neutral-800 border-neutral-700":"bg-white border-gray-200","rounded-2xl border p-4")}>
+                  <h2 className="font-medium mb-3">Results</h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="rounded-xl border border-gray-200 p-4 bg-white">
+                      <div className="text-sm text-gray-500">Suggested Lot Size</div>
+                      <div className="text-2xl font-semibold mt-1">{num(lotSize,3)}</div>
+                      <div className="text-xs text-gray-500 mt-1">lots</div>
+                    </div>
+                    <div className="rounded-xl border border-gray-200 p-4 bg-white">
+                      <div className="text-sm text-gray-500">Loss at SL</div>
+                      <div className="text-2xl font-semibold mt-1">{money(lossPerLot*lotSize)}</div>
+                      <div className="text-xs text-gray-500 mt-1">SL adj {num(slDist,dec)} units</div>
+                    </div>
+                    <div className="rounded-xl border border-gray-200 p-4 bg-white">
+                      <div className="text-sm text-gray-500">Profit if TP1+TP2(+Runner)</div>
+                      <div className="text-2xl font-semibold mt-1">{money(estProfit)}</div>
+                      <div className="text-xs text-gray-500 mt-1">Sequential targets</div>
+                    </div>
+                  </div>
+                </section>
+              </div>
             </div>
 
-            <!-- RESULTS: 1 col on mobile, 2 cols on desktop, 3 on large -->
-            <section className={cls(dark?"bg-neutral-800 border-neutral-700":"bg-white border-gray-200","rounded-2xl shadow-sm border p-4")}>
-              <h2 className="font-medium mb-3">Results</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <ResultCard title="Suggested Lot Size" value={num(lotSize, 3)} subtitle="lots"/>
-                <ResultCard title="Loss at SL" value={fmtMoney(lossPerLot * lotSize)} subtitle={`SL adj ${num(slDist,decimals)} units`}/>
-                <ResultCard title="Profit if TP1+TP2(+Runner)" value={fmtMoney(estProfitIfAllTPs)} subtitle="Sequential targets"/>
-                <ResultCard title="Est. Margin" value={fmtMoney(estMargin)} subtitle={`@ 1:${num(leverage,0)} leverage`}/>
-                {autoBE && <ResultCard title="BE SL (after trigger)" value={beSL ? num(beSL, decimals) : "–"} subtitle={beTrigger === 'Units' ? `Trigger: ${num(beTriggerDist,decimals)} units` : `Trigger: ${beTrigger}`}/>}
-                {useTrail && <ResultCard title="Trailing SL @ TP2" value={trailAtTP2 ? num(trailAtTP2, decimals) : "–"} subtitle={`Trail dist ${num(trailUnits,decimals)} units`}/>}
-              </div>
-
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                <div className={cls("p-3 rounded-xl border", dark?"border-neutral-700 bg-neutral-800":"border-gray-200 bg-gray-50")}>
-                  <div className="font-medium mb-1">Notes</div>
-                  <ul className="list-disc pl-5 space-y-1 text-gray-700">
-                    <li>Spreads & commissions φορτώνονται αυτόματα από τα presets (editable).</li>
-                    <li>Το sizing βασίζεται σε equity, risk %, spread-adjusted SL/TP και commission.</li>
-                    <li>Για ακριβή νούμερα, επιβεβαίωσε VPU & broker specs.</li>
-                  </ul>
-                </div>
-              </div>
-            </section>
-
             <footer className="text-xs text-gray-500 mt-6">
-              Built for fast pre-trade sizing. Επιβεβαίωσε πάντα τις ακριβείς τιμές στο MT5 και τις προδιαγραφές του broker.
+              Built for quick pre-trade sizing. Confirm exact contract/VPU, spreads & commissions with your broker.
             </footer>
           </div>
         </div>
       );
     }
 
-    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
   </script>
 </body>
 </html>
