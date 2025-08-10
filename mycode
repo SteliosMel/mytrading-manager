@@ -1,279 +1,414 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Risk Manager v4 (pips + R:R)</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Risk Manager v5</title>
 
-  <!-- Tailwind CDN -->
+  <!-- Tailwind (CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- Dark-mode readability fixes -->
-  <style>
-    /* Inputs/selects/textareas stay white with black text in dark mode */
-    .dark input, .dark select, .dark textarea {
-      background: #fff !important;
-      color: #111 !important;                 /* typed text */
-      border-color: #e5e7eb !important;
-    }
-    /* Darken placeholder in dark mode (default is too light) */
-    .dark input::placeholder, .dark textarea::placeholder {
-      color: #374151 !important;              /* gray-700 */
-      opacity: 1 !important;
-    }
-    /* White chips/cards readable in dark */
-    .dark .bg-white, .dark .bg-gray-50, .dark .bg-gray-100 { color:#111 !important; }
-    .dark .border-gray-200, .dark .border-gray-300 { border-color:#e5e7eb !important; }
-
-    /* Result cards */
-    .result-card { background:#fff; }
-    .dark .result-card { color:#111 !important; }
-    .dark .result-card .muted { color:#4b5563 !important; } /* darker subtitle */
-  </style>
-
-  <!-- React + Babel -->
+  <!-- React + ReactDOM + Babel (to run JSX in the browser) -->
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    /* Minimal, clean look */
+    body { font-feature-settings: "tnum"; }
+    .card { border-radius: 1rem; border: 1px solid #e5e7eb; background:#fff; }
+    .dark .card { background:#111827; border-color:#374151; }
+
+    /* Inputs & result cards: FORCE black text on white even in dark mode */
+    .dark input,
+    .dark select,
+    .dark textarea { color:#111 !important; background:#fff !important; }
+    .dark .result-card { color:#111 !important; background:#fff !important; }
+    .dark .result-card .muted { color:#4b5563 !important; }
+
+    /* Little muted text */
+    .muted { color:#6b7280; }
+    .badge { font-size:.75rem; background:#f3f4f6; border:1px solid #e5e7eb; padding:.125rem .5rem; border-radius:.5rem; }
+    .dark .badge { background:#111 !important; color:#e5e7eb !important; border-color:#374151 !important; }
+
+    .btn { border:1px solid #d1d5db; border-radius:.75rem; padding:.5rem .75rem; }
+    .btn:hover { background:#f3f4f6; }
+  </style>
 </head>
-<body class="bg-gray-50 text-gray-900">
-<div id="root"></div>
+<body class="bg-gray-50 text-gray-900" id="bodyRoot">
+  <div id="root"></div>
 
 <script type="text/babel">
 const { useState, useMemo } = React;
 
-/* ---------- Helpers ---------- */
+/* ---------- helpers ---------- */
 const cls = (...s) => s.filter(Boolean).join(" ");
-const num = (v, d=2) => (Number.isFinite(v) ? v.toLocaleString(undefined,{maximumFractionDigits:d}) : "–");
-const money = (v) => (Number.isFinite(v) ? v.toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:2}) : "–");
+const money = v => (Number.isFinite(v) ? v.toLocaleString(undefined, {style:"currency", currency:"USD", maximumFractionDigits:2}) : "–");
+const num = (v, d=2) => (Number.isFinite(v) ? v.toLocaleString(undefined, { maximumFractionDigits:d }) : "–");
+const round = (v, d=2) => Number.isFinite(v) ? parseFloat(v.toFixed(d)) : v;
 
-/* Pip/point size per symbol (adjust if your broker differs) */
+/* ---------- simple presets ---------- */
+/* value per 1.0 price unit per 1.0 lot */
+const VPU_PRESETS = {
+  XAUUSD: 100,
+  EURUSD: 100000,
+  US30: 1, GER40: 1, SPX500: 1, NAS100: 1, UK100: 1,
+};
+
+/* pip/point size per symbol */
 const PIP_SIZE = {
-  EURUSD: 0.0001, XAUUSD: 0.1,             // many brokers
-  US30: 1, NAS100: 1, SPX500: 1, GER40: 1, UK100: 1,
-  FTSE100: 1, DE40: 1, US500: 1, BTCUSD: 1
+  XAUUSD: 0.1,             // treat 0.1 as "pip" for gold
+  EURUSD: 0.0001,
+  US30: 1, GER40: 1, SPX500: 1, NAS100: 1, UK100: 1
 };
 
-/* Very light VPU (USD per 1.0 price move @ 1 lot) presets; adjust to your broker */
-const VPU_PRESET = {
-  EURUSD: 100000, XAUUSD: 100, US30:1, NAS100:1, SPX500:1, GER40:1, UK100:1, FTSE100:1, DE40:1, US500:1, BTCUSD:1
+/* preferred decimals for each instrument */
+const DECIMALS = {
+  XAUUSD: 2,
+  EURUSD: 5,
+  US30: 1, GER40: 1, SPX500: 1, NAS100: 1, UK100: 1
 };
-
-function Card({title, children}) {
-  return (
-    <section className="rounded-2xl shadow-sm border p-4 bg-white">
-      <h2 className="font-medium mb-3">{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-function Kpi({label, value, sub}) {
-  return (
-    <div className="result-card rounded-2xl border border-gray-200 p-4">
-      <div className="muted text-sm">{label}</div>
-      <div className="text-2xl font-semibold mt-1">{value}</div>
-      {sub ? <div className="muted text-xs mt-1">{sub}</div> : null}
-    </div>
-  );
-}
 
 function App(){
-  const [dark, setDark] = useState(true);
+  /* theme */
+  const [dark, setDark] = useState(false);
 
-  /* Account */
+  /* account */
   const [balance, setBalance] = useState(10000);
-  const [equity, setEquity] = useState(10000);
-  const [riskPct, setRiskPct] = useState(1);
+  const [equity, setEquity]   = useState(10000);
+  const [riskPct, setRiskPct] = useState(5);
 
-  /* Trade */
-  const [broker, setBroker] = useState("PU Prime");
-  const [symbol, setSymbol] = useState("XAUUSD");
-  const [side, setSide] = useState("BUY");
-  const [entry, setEntry] = useState(2400);
-  const [sl, setSL] = useState(2365);
-  const [tp1, setTP1] = useState(2440);
-  const [tp2, setTP2] = useState(2520);
-  const [runnerTP, setRunnerTP] = useState("");
+  /* broker/symbol/trade */
+  const [broker, setBroker]   = useState("PU Prime");
+  const [symbol, setSymbol]   = useState("XAUUSD");
+  const [side, setSide]       = useState("BUY");
+  const [entry, setEntry]     = useState(3200);
+  const [sl, setSL]           = useState(3150);
 
-  /* Costs */
+  /* costs */
   const [spreadUnits, setSpreadUnits] = useState(0.08);
   const [commissionRT, setCommissionRT] = useState(7);
 
-  /* R:R */
-  const [rr1, setRR1] = useState(1);   // multiplier for TP1
-  const [rr2, setRR2] = useState(2);   // multiplier for TP2
+  /* targets */
+  const [tp1, setTP1] = useState(3250);
+  const [tp2, setTP2] = useState(3300);
+  const [runnerTP, setRunnerTP] = useState("");
 
-  /* VPU (allow custom if you want later) */
-  const VPU = VPU_PRESET[symbol] ?? 100000;
+  /* R:R inputs (auto fill TPs using SL distance) */
+  const [rr1, setRR1] = useState(1);
+  const [rr2, setRR2] = useState(2);
+
+  /* ATR */
+  const [useATR, setUseATR] = useState(false);
+  const [atrValue, setAtrValue] = useState(10);
+  const [atrSLmult, setAtrSLmult] = useState(1.5);
+  const [atrTP1mult, setAtrTP1mult] = useState(2);
+  const [atrTP2mult, setAtrTP2mult] = useState(3);
+  const [atrTrailMult, setAtrTrailMult] = useState(1);
+
+  /* instrument info */
+  const vpu = VPU_PRESETS[symbol] ?? 100;
   const pipSize = PIP_SIZE[symbol] ?? 1;
+  const decimals = DECIMALS[symbol] ?? 2;
 
+  /* derived */
   const riskAmt = equity * (riskPct/100);
 
-  // base distances
-  const distSL = Math.abs(entry - sl);
-  const distTP1 = Math.abs(tp1 - entry);
-  const distTP2 = Math.abs(tp2 - entry);
-  const distRunner = runnerTP === "" ? 0 : Math.abs(Number(runnerTP)-entry);
+  const slBaseDist = Math.abs(entry - sl);
+  const tp1BaseDist = Math.abs(tp1 - entry);
+  const tp2BaseDist = Math.abs(tp2 - entry);
+  const runnerBaseDist = runnerTP === "" ? 0 : Math.abs(Number(runnerTP) - entry);
 
-  // spread-adjusted
-  const slAdj = distSL + spreadUnits;
-  const tp1Adj = Math.max(0, distTP1 - spreadUnits);
-  const tp2Adj = Math.max(0, distTP2 - spreadUnits);
-  const runnerAdj = Math.max(0, distRunner - spreadUnits);
+  /* conservative spread-adjusted distances */
+  const slDist = slBaseDist + spreadUnits;                  // we worsen loss by spread
+  const tp1Dist = Math.max(0, tp1BaseDist - spreadUnits);   // reduce profit by spread
+  const tp2Dist = Math.max(0, tp2BaseDist - spreadUnits);
+  const runnerDist = Math.max(0, runnerBaseDist - spreadUnits);
 
-  // pips (or points)
-  const slPips = pipSize>0 ? slAdj/pipSize : 0;
-  const tp1Pips = pipSize>0 ? tp1Adj/pipSize : 0;
-  const tp2Pips = pipSize>0 ? tp2Adj/pipSize : 0;
-  const runnerPips = pipSize>0 ? runnerAdj/pipSize : 0;
+  const pipify = d => d / pipSize;
 
-  // per-lot P&L
-  const lossPerLot = slAdj * VPU + commissionRT;     // worst-case at SL
-  const p1PerLot   = tp1Adj*VPU - commissionRT*0.5;  // simple split of commission across targets
-  const p2PerLot   = tp2Adj*VPU - commissionRT*0.5;
+  /* per-lot cash outcomes (commission round-trip, assume all-in) */
+  const lossPerLot = slDist * vpu + commissionRT;
+  const p1PerLot   = tp1Dist * vpu - commissionRT/2; // rough split
+  const p2PerLot   = tp2Dist * vpu - commissionRT/2;
+  const prPerLot   = runnerDist * vpu - commissionRT/2;
 
-  const lotSize = lossPerLot>0 ? (riskAmt/lossPerLot) : 0;
+  const lotSize = lossPerLot > 0 ? (riskAmt / lossPerLot) : 0;
 
-  const estProfitIfTPs = (p1PerLot + p2PerLot) * lotSize; // simple: assume full size to both (adjust to your partials)
+  const simpleProfitIfTP12 = (p1PerLot + p2PerLot) * lotSize;
+  const rrQuick = slDist > 0 ? (tp2Dist / slDist) : 0;
 
-  const rrSimple = slAdj>0 ? (tp2Adj/slAdj).toFixed(2) : "–";
+  /* ATR suggestions */
+  const atrSLdist    = atrValue * atrSLmult;
+  const atrTP1dist   = atrValue * atrTP1mult;
+  const atrTP2dist   = atrValue * atrTP2mult;
+  const atrTrailDist = atrValue * atrTrailMult;
 
-  // Set TP from R:R (using SL distance)
-  const applyRR = () => {
-    if (!Number.isFinite(distSL) || distSL<=0) return;
-    const d = distSL;
-    const t1 = side==="BUY" ? entry + d*rr1 : entry - d*rr1;
-    const t2 = side==="BUY" ? entry + d*rr2 : entry - d*rr2;
-    setTP1(+t1.toFixed(2));
-    setTP2(+t2.toFixed(2));
+  const slSuggested  = side === 'BUY' ? entry - atrSLdist : entry + atrSLdist;
+  const tp1Suggested = side === 'BUY' ? entry + atrTP1dist : entry - atrTP1dist;
+  const tp2Suggested = side === 'BUY' ? entry + atrTP2dist : entry - atrTP2dist;
+
+  const applyATR = () => {
+    if (!useATR) return;
+    setSL(round(slSuggested, decimals));
+    setTP1(round(tp1Suggested, decimals));
+    setTP2(round(tp2Suggested, decimals));
+    // trail distance is in "price units" – you can use it however you like
   };
 
-  const containerCls = cls("min-h-screen", dark? "dark bg-neutral-900 text-neutral-100" : "bg-gray-50 text-gray-900");
+  /* R:R – set TP from SL */
+  const setTPfromRR = () => {
+    const dist = Math.abs(entry - sl);       // distance from entry to SL (no spread here)
+    if (dist === 0 || !Number.isFinite(dist)) return;
+
+    const sign = side === "BUY" ? 1 : -1;    // where TPs sit relative to entry
+    const tp1n = entry + sign * (rr1 * dist);
+    const tp2n = entry + sign * (rr2 * dist);
+    setTP1(round(tp1n, decimals));
+    setTP2(round(tp2n, decimals));
+  };
+
+  /* dark class on <body> (for Tailwind) */
+  React.useEffect(()=>{
+    const b = document.getElementById("bodyRoot");
+    if (dark) b.classList.add("dark","bg-neutral-900","text-neutral-100");
+    else b.classList.remove("dark","bg-neutral-900","text-neutral-100");
+  },[dark]);
 
   return (
-    <div className={containerCls}>
-      <div className="max-w-7xl mx-auto p-6">
-        <header className="mb-6 flex items-center justify-between">
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">Risk Manager v4</h1>
-          <button onClick={()=>setDark(d=>!d)} className="px-3 py-1.5 rounded-xl border border-gray-300 hover:bg-gray-100 text-sm">
-            {dark? "Light mode" : "Dark mode"}
-          </button>
-        </header>
+    <div className="max-w-7xl mx-auto p-6 space-y-6">
+      <header className="flex items-center justify-between">
+        <h1 className="text-2xl sm:text-3xl font-semibold">Risk Manager v5</h1>
+        <button className="btn" onClick={()=>setDark(d=>!d)}>
+          {dark ? "Light mode" : "Dark mode"}
+        </button>
+      </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Card title="Account">
-            <div className="grid grid-cols-2 gap-3">
-              <label className="text-sm">Balance
-                <input type="number" value={balance} onChange={e=>setBalance(parseFloat(e.target.value)||0)} placeholder="10000" className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-              </label>
-              <label className="text-sm">Equity
-                <input type="number" value={equity} onChange={e=>setEquity(parseFloat(e.target.value)||0)} placeholder="10000" className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-              </label>
-              <label className="text-sm">Risk %
-                <input type="number" step="0.1" value={riskPct} onChange={e=>setRiskPct(parseFloat(e.target.value)||0)} placeholder="1" className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-              </label>
-              <div className="text-sm flex items-end">
-                <span className="px-2 py-1 rounded-full text-xs bg-gray-100 border border-gray-200">Risk {money(riskAmt)}</span>
-              </div>
+      {/* Top row: Account / Broker & Trade */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Account */}
+        <section className="card p-5">
+          <h2 className="font-medium mb-3">Account</h2>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-sm">Balance
+              <input type="number" value={balance}
+                     onChange={e=>setBalance(parseFloat(e.target.value)||0)}
+                     className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+            </label>
+            <label className="text-sm">Equity
+              <input type="number" value={equity}
+                     onChange={e=>setEquity(parseFloat(e.target.value)||0)}
+                     className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+            </label>
+            <label className="text-sm col-span-2 sm:col-span-1">Risk %
+              <input type="number" step="0.1" value={riskPct}
+                     onChange={e=>setRiskPct(parseFloat(e.target.value)||0)}
+                     className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+            </label>
+            <div className="text-sm flex items-end">
+              <span className="badge">Risk {money(riskAmt)}</span>
             </div>
-          </Card>
-
-          <Card title="Broker & Trade">
-            <div className="grid grid-cols-2 gap-3">
-              <label className="text-sm">Broker
-                <select value={broker} onChange={e=>setBroker(e.target.value)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 bg-white">
-                  <option>PU Prime</option>
-                  <option>IC Trading</option>
-                  <option>Vantage</option>
-                </select>
-              </label>
-              <label className="text-sm">Symbol
-                <select value={symbol} onChange={e=>setSymbol(e.target.value)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 bg-white">
-                  <option>EURUSD</option><option>XAUUSD</option>
-                  <option>US30</option><option>NAS100</option><option>SPX500</option>
-                  <option>GER40</option><option>UK100</option><option>FTSE100</option><option>DE40</option><option>US500</option>
-                  <option>BTCUSD</option>
-                </select>
-              </label>
-              <label className="text-sm">Side
-                <select value={side} onChange={e=>setSide(e.target.value)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2 bg-white">
-                  <option>BUY</option><option>SELL</option>
-                </select>
-              </label>
-              <label className="text-sm">Entry
-                <input type="number" value={entry} onChange={e=>setEntry(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-              </label>
-              <label className="text-sm">Stop Loss
-                <input type="number" value={sl} onChange={e=>setSL(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                <div className="text-xs mt-1">
-                  <span className="px-2 py-1 rounded bg-gray-100 border border-gray-200">SL adj: {num(slAdj,2)} ( {num(slPips,1)} pips )</span>
-                </div>
-              </label>
-              <div className="text-sm"/>
-              <label className="text-sm">Spread (price units)
-                <input type="number" step="0.01" value={spreadUnits} onChange={e=>setSpreadUnits(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-              </label>
-              <label className="text-sm">Commission (round-trip, $ / lot)
-                <input type="number" step="0.01" value={commissionRT} onChange={e=>setCommissionRT(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-              </label>
-            </div>
-          </Card>
-
-          <Card title="Targets & Partials">
-            <div className="grid grid-cols-2 gap-3">
-              <label className="text-sm">TP1 price
-                <input type="number" value={tp1} onChange={e=>setTP1(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                <div className="text-xs mt-1"><span className="px-2 py-1 rounded bg-gray-100 border border-gray-200">TP1 adj: {num(tp1Adj,2)} ( {num(tp1Pips,1)} pips )</span></div>
-              </label>
-              <label className="text-sm">TP2 price
-                <input type="number" value={tp2} onChange={e=>setTP2(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                <div className="text-xs mt-1"><span className="px-2 py-1 rounded bg-gray-100 border border-gray-200">TP2 adj: {num(tp2Adj,2)} ( {num(tp2Pips,1)} pips )</span></div>
-              </label>
-              <label className="text-sm col-span-2">Runner TP (optional)
-                <input type="number" value={runnerTP} onChange={e=>setRunnerTP(e.target.value===""?"":(parseFloat(e.target.value)||0))} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-                <div className="text-xs mt-1"><span className="px-2 py-1 rounded bg-gray-100 border border-gray-200">Runner adj: {num(runnerAdj,2)} ( {num(runnerPips,1)} pips )</span></div>
-              </label>
-            </div>
-          </Card>
-
-          <Card title="R:R targets (auto TP from SL)">
-            <div className="grid grid-cols-2 gap-3">
-              <label className="text-sm">TP1 = R × SL (R)
-                <input type="number" step="0.1" value={rr1} onChange={e=>setRR1(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-              </label>
-              <label className="text-sm">TP2 = R × SL (R)
-                <input type="number" step="0.1" value={rr2} onChange={e=>setRR2(parseFloat(e.target.value)||0)} className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
-              </label>
-            </div>
-            <div className="mt-3">
-              <button onClick={applyRR} className="px-3 py-2 rounded-xl border border-gray-300 hover:bg-gray-100 text-sm">
-                Set TP from R:R
-              </button>
-              <div className="text-xs text-gray-500 mt-2">Uses the current SL distance {num(distSL,2)} ( {num(distSL/pipSize,1)} pips ) to set TP1/TP2.</div>
-            </div>
-          </Card>
-        </div>
-
-        <section className="rounded-2xl shadow-sm border p-4 bg-white mt-4">
-          <h2 className="font-medium mb-3">Results</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Kpi label="Suggested Lot Size" value={num(lotSize,3)} sub="lots"/>
-            <Kpi label="Loss at SL" value={money(lossPerLot*lotSize)} sub={`SL adj ${num(slAdj,2)} units / ${num(slPips,1)} pips`}/>
-            <Kpi label="Profit (TP1+TP2)" value={money(estProfitIfTPs)} sub="Simple sum of TP1 & TP2 with full size"/>
-            <Kpi label="Quick R:R (TP2/SL)" value={rrSimple}/>
           </div>
         </section>
 
-        <footer className="text-xs text-gray-500 mt-6">
-          Built for quick sizing and RR planning. Confirm broker specs (contract, pip size, VPU, costs) on your platform.
-        </footer>
+        {/* Broker & Trade */}
+        <section className="card p-5">
+          <h2 className="font-medium mb-3">Broker & Trade</h2>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-sm">Broker
+              <select value={broker} onChange={e=>setBroker(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2">
+                <option>PU Prime</option>
+                <option>IC Trading</option>
+                <option>Vantage</option>
+                <option>Other</option>
+              </select>
+            </label>
+            <label className="text-sm">Symbol
+              <select value={symbol} onChange={e=>setSymbol(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2">
+                <option>XAUUSD</option>
+                <option>EURUSD</option>
+                <option>US30</option>
+                <option>GER40</option>
+                <option>SPX500</option>
+                <option>NAS100</option>
+                <option>UK100</option>
+              </select>
+            </label>
+            <label className="text-sm">Side
+              <select value={side} onChange={e=>setSide(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2">
+                <option>BUY</option>
+                <option>SELL</option>
+              </select>
+            </label>
+            <label className="text-sm">Entry
+              <input type="number" value={entry}
+                     onChange={e=>setEntry(parseFloat(e.target.value)||0)}
+                     className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+            </label>
+            <label className="text-sm">Stop Loss
+              <input type="number" value={sl}
+                     onChange={e=>setSL(parseFloat(e.target.value)||0)}
+                     className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+              <div className="mt-1 text-xs muted">
+                SL adj: {num(slDist, decimals)} units ({num(pipify(slDist),1)} pips)
+              </div>
+            </label>
+            <label className="text-sm">Spread (price units)
+              <input type="number" step="0.01" value={spreadUnits}
+                     onChange={e=>setSpreadUnits(parseFloat(e.target.value)||0)}
+                     className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+            </label>
+            <label className="text-sm col-span-2">Commission (round-trip, $ / lot)
+              <input type="number" step="0.01" value={commissionRT}
+                     onChange={e=>setCommissionRT(parseFloat(e.target.value)||0)}
+                     className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+            </label>
+          </div>
+        </section>
       </div>
+
+      {/* ATR Engine */}
+      <section className="card p-5">
+        <h2 className="font-medium mb-3">ATR Engine (manual)</h2>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
+          <label className="col-span-2 flex items-center gap-2">
+            <input type="checkbox" checked={useATR} onChange={e=>setUseATR(e.target.checked)} />
+            <span>Enable ATR-based TP/SL & TSL</span>
+          </label>
+          <label>ATR value (units)
+            <input type="number" step="0.01" value={atrValue}
+                   onChange={e=>setAtrValue(parseFloat(e.target.value)||0)}
+                   className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+          </label>
+          <label>SL × ATR
+            <input type="number" step="0.1" value={atrSLmult}
+                   onChange={e=>setAtrSLmult(parseFloat(e.target.value)||0)}
+                   className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+          </label>
+          <label>TP1 × ATR
+            <input type="number" step="0.1" value={atrTP1mult}
+                   onChange={e=>setAtrTP1mult(parseFloat(e.target.value)||0)}
+                   className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+          </label>
+          <label>TP2 × ATR
+            <input type="number" step="0.1" value={atrTP2mult}
+                   onChange={e=>setAtrTP2mult(parseFloat(e.target.value)||0)}
+                   className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+          </label>
+          <label>Trail × ATR
+            <input type="number" step="0.1" value={atrTrailMult}
+                   onChange={e=>setAtrTrailMult(parseFloat(e.target.value)||0)}
+                   className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+          </label>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          <span className="badge">SL → {num(slSuggested, decimals)}</span>
+          <span className="badge">TP1 → {num(tp1Suggested, decimals)}</span>
+          <span className="badge">TP2 → {num(tp2Suggested, decimals)}</span>
+          <span className="badge">TSL dist → {num(atrTrailDist, decimals)} units</span>
+        </div>
+        <div className="mt-3">
+          <button className="btn text-sm" onClick={applyATR}>Apply ATR to SL/TP/TSL</button>
+        </div>
+      </section>
+
+      {/* Targets + R:R */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Targets & Partials */}
+        <section className="card p-5">
+          <h2 className="font-medium mb-3">Targets & Partials</h2>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-sm">TP1 price
+              <input type="number" value={tp1}
+                     onChange={e=>setTP1(parseFloat(e.target.value)||0)}
+                     className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+              <div className="mt-1 text-xs muted">
+                TP1 adj: {num(tp1Dist, decimals)} units ( {num(pipify(tp1Dist),1)} pips )
+              </div>
+            </label>
+            <label className="text-sm">TP2 price
+              <input type="number" value={tp2}
+                     onChange={e=>setTP2(parseFloat(e.target.value)||0)}
+                     className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+              <div className="mt-1 text-xs muted">
+                TP2 adj: {num(tp2Dist, decimals)} units ( {num(pipify(tp2Dist),1)} pips )
+              </div>
+            </label>
+            <label className="text-sm col-span-2">Runner TP (optional)
+              <input type="number" value={runnerTP}
+                     onChange={e=>setRunnerTP(e.target.value === "" ? "" : (parseFloat(e.target.value)||0))}
+                     className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+              <div className="mt-1 text-xs muted">
+                Runner adj: {num(runnerDist, decimals)} units ( {num(pipify(runnerDist),1)} pips )
+              </div>
+            </label>
+          </div>
+        </section>
+
+        {/* R:R from SL */}
+        <section className="card p-5">
+          <h2 className="font-medium mb-3">R:R targets (auto TP from SL)</h2>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <label>TP1 = R × SL (R)
+              <input type="number" step="0.1" value={rr1}
+                     onChange={e=>setRR1(parseFloat(e.target.value)||0)}
+                     className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+            </label>
+            <label>TP2 = R × SL (R)
+              <input type="number" step="0.1" value={rr2}
+                     onChange={e=>setRR2(parseFloat(e.target.value)||0)}
+                     className="mt-1 w-full rounded-xl border border-gray-300 px-3 py-2"/>
+            </label>
+          </div>
+          <div className="mt-3">
+            <button className="btn text-sm" onClick={setTPfromRR}>Set TP from R:R</button>
+          </div>
+          <div className="mt-2 text-xs muted">
+            Uses the current SL distance {num(slBaseDist,decimals)} units ( {num(pipify(slBaseDist),1)} pips ) to set TP1/TP2.
+          </div>
+        </section>
+      </div>
+
+      {/* Results */}
+      <section className="card p-5">
+        <h2 className="font-medium mb-3">Results</h2>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="result-card card p-4">
+            <div className="muted text-sm">Suggested Lot Size</div>
+            <div className="text-2xl font-semibold mt-1">{num(lotSize,3)}</div>
+            <div className="muted text-xs mt-1">lots</div>
+          </div>
+          <div className="result-card card p-4">
+            <div className="muted text-sm">Loss at SL</div>
+            <div className="text-2xl font-semibold mt-1">{money(lossPerLot * lotSize)}</div>
+            <div className="muted text-xs mt-1">
+              SL adj {num(slDist,decimals)} units / {num(pipify(slDist),1)} pips
+            </div>
+          </div>
+          <div className="result-card card p-4">
+            <div className="muted text-sm">Profit (TP1+TP2)</div>
+            <div className="text-2xl font-semibold mt-1">{money(simpleProfitIfTP12)}</div>
+            <div className="muted text-xs mt-1">Simple sum of TP1 & TP2 with full size</div>
+          </div>
+          <div className="result-card card p-4">
+            <div className="muted text-sm">Quick R:R (TP2/SL)</div>
+            <div className="text-2xl font-semibold mt-1">{num(rrQuick,2)}</div>
+          </div>
+        </div>
+      </section>
+
+      <footer className="muted text-xs">
+        Built for fast pre-trade sizing. Confirm instrument specs (pip size & VPU), spreads and commissions with your broker.
+      </footer>
     </div>
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>
 </body>
 </html>
